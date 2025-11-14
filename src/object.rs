@@ -2,6 +2,7 @@
 
 use crate::allocator::Arena;
 use std::ptr::NonNull;
+use std::collections::HashMap;
 
 /// Pain runtime value types
 #[derive(Debug, Clone, PartialEq)]
@@ -11,7 +12,32 @@ pub enum Value {
     Bool(bool),
     String(String),
     None,
-    // Future: List, Map, Object, etc.
+    Object(ClassInstance), // Class instance
+    // Future: List, Map, etc.
+}
+
+/// Class instance - stores field values
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassInstance {
+    pub class_name: String,
+    pub fields: HashMap<String, Value>,
+}
+
+impl ClassInstance {
+    pub fn new(class_name: String) -> Self {
+        Self {
+            class_name,
+            fields: HashMap::new(),
+        }
+    }
+
+    pub fn get_field(&self, name: &str) -> Option<&Value> {
+        self.fields.get(name)
+    }
+
+    pub fn set_field(&mut self, name: String, value: Value) {
+        self.fields.insert(name, value);
+    }
 }
 
 /// Runtime object representation
@@ -58,6 +84,7 @@ impl Object {
 /// Runtime context for managing objects and memory
 pub struct Runtime {
     arena: Arena,
+    gc: crate::gc::GarbageCollector,
 }
 
 impl Runtime {
@@ -65,6 +92,7 @@ impl Runtime {
     pub fn new() -> Result<Self, &'static str> {
         Ok(Self {
             arena: Arena::new(1024 * 1024)?, // 1MB default
+            gc: crate::gc::GarbageCollector::new(),
         })
     }
 
@@ -72,6 +100,15 @@ impl Runtime {
     pub fn with_arena_size(size: usize) -> Result<Self, &'static str> {
         Ok(Self {
             arena: Arena::new(size)?,
+            gc: crate::gc::GarbageCollector::new(),
+        })
+    }
+
+    /// Create a new runtime with GC enabled and custom threshold
+    pub fn with_gc_threshold(threshold: usize) -> Result<Self, &'static str> {
+        Ok(Self {
+            arena: Arena::new(1024 * 1024)?,
+            gc: crate::gc::GarbageCollector::with_threshold(threshold),
         })
     }
 
@@ -88,6 +125,21 @@ impl Runtime {
     /// Get memory usage statistics
     pub fn memory_stats(&self) -> (usize, usize) {
         (self.arena.total_used(), self.arena.total_capacity())
+    }
+
+    /// Run garbage collection
+    pub fn collect_garbage(&mut self) -> usize {
+        self.gc.force_collect()
+    }
+
+    /// Get GC statistics
+    pub fn gc_stats(&self) -> (usize, usize, usize) {
+        self.gc.stats()
+    }
+
+    /// Manually trigger GC collection
+    pub fn gc_collect(&mut self) {
+        self.gc.collect();
     }
 }
 
@@ -110,6 +162,16 @@ mod tests {
 
         assert_eq!(v1, Value::Int(42));
         assert_eq!(v2, Value::Float(3.14));
+    }
+
+    #[test]
+    fn test_class_instance() {
+        let mut instance = ClassInstance::new("Point".to_string());
+        instance.set_field("x".to_string(), Value::Int(10));
+        instance.set_field("y".to_string(), Value::Int(20));
+        
+        assert_eq!(instance.get_field("x"), Some(&Value::Int(10)));
+        assert_eq!(instance.get_field("y"), Some(&Value::Int(20)));
     }
 
     #[test]
