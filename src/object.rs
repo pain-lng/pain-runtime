@@ -13,7 +13,8 @@ pub enum Value {
     String(String),
     None,
     Object(ClassInstance), // Class instance
-    // Future: List, Map, etc.
+    List(Vec<Value>), // Dynamic list
+    Array(Vec<Value>), // Fixed-size array (for now, same as list)
 }
 
 /// Class instance - stores field values
@@ -76,6 +77,13 @@ impl Object {
     pub fn as_string(&self) -> Option<&String> {
         match &self.value {
             Value::String(s) => Some(s),
+            _ => None,
+        }
+    }
+    
+    pub fn as_list(&self) -> Option<&Vec<Value>> {
+        match &self.value {
+            Value::List(v) | Value::Array(v) => Some(v),
             _ => None,
         }
     }
