@@ -22,8 +22,7 @@ impl BumpAllocator {
             return Err("Allocator size must be greater than 0");
         }
 
-        let layout = Layout::from_size_align(size, 8)
-            .map_err(|_| "Invalid layout")?;
+        let layout = Layout::from_size_align(size, 8).map_err(|_| "Invalid layout")?;
 
         unsafe {
             let ptr = alloc(layout);
@@ -145,13 +144,13 @@ mod tests {
     #[test]
     fn test_bump_allocator() {
         let mut allocator = BumpAllocator::new(1024).unwrap();
-        
+
         let _ptr1 = allocator.allocate(16, 8).unwrap();
         assert_eq!(allocator.used(), 16);
-        
+
         let _ptr2 = allocator.allocate(32, 8).unwrap();
         assert_eq!(allocator.used(), 48);
-        
+
         allocator.reset();
         assert_eq!(allocator.used(), 0);
     }
@@ -159,12 +158,12 @@ mod tests {
     #[test]
     fn test_arena() {
         let mut arena = Arena::new(256).unwrap();
-        
+
         let _ptr1 = arena.allocate(64, 8).unwrap();
         let _ptr2 = arena.allocate(128, 8).unwrap();
-        
+
         assert!(arena.total_used() > 0);
-        
+
         arena.reset();
         assert_eq!(arena.total_used(), 0);
     }

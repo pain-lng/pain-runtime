@@ -1,8 +1,8 @@
 // Object model for Pain runtime
 
 use crate::allocator::Arena;
-use std::ptr::NonNull;
 use std::collections::HashMap;
+use std::ptr::NonNull;
 
 /// Pain runtime value types
 #[derive(Debug, Clone, PartialEq)]
@@ -13,8 +13,8 @@ pub enum Value {
     String(String),
     None,
     Object(ClassInstance), // Class instance
-    List(Vec<Value>), // Dynamic list
-    Array(Vec<Value>), // Fixed-size array (for now, same as list)
+    List(Vec<Value>),      // Dynamic list
+    Array(Vec<Value>),     // Fixed-size array (for now, same as list)
 }
 
 /// Class instance - stores field values
@@ -80,7 +80,7 @@ impl Object {
             _ => None,
         }
     }
-    
+
     pub fn as_list(&self) -> Option<&Vec<Value>> {
         match &self.value {
             Value::List(v) | Value::Array(v) => Some(v),
@@ -163,13 +163,15 @@ mod tests {
 
     #[test]
     fn test_value() {
+        use std::f64::consts::PI;
+
         let v1 = Value::Int(42);
-        let v2 = Value::Float(3.14);
+        let v2 = Value::Float(PI);
         let _v3 = Value::Bool(true);
         let _v4 = Value::String("hello".to_string());
 
         assert_eq!(v1, Value::Int(42));
-        assert_eq!(v2, Value::Float(3.14));
+        assert_eq!(v2, Value::Float(PI));
     }
 
     #[test]
@@ -177,7 +179,7 @@ mod tests {
         let mut instance = ClassInstance::new("Point".to_string());
         instance.set_field("x".to_string(), Value::Int(10));
         instance.set_field("y".to_string(), Value::Int(20));
-        
+
         assert_eq!(instance.get_field("x"), Some(&Value::Int(10)));
         assert_eq!(instance.get_field("y"), Some(&Value::Int(20)));
     }
@@ -194,10 +196,9 @@ mod tests {
         let mut rt = Runtime::new().unwrap();
         let ptr = rt.allocate(64, 8);
         assert!(ptr.is_some());
-        
+
         let (used, capacity) = rt.memory_stats();
         assert!(used > 0);
         assert!(capacity > 0);
     }
 }
-

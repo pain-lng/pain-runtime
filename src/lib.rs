@@ -6,5 +6,4 @@ pub mod object;
 
 pub use allocator::{Arena, BumpAllocator};
 pub use gc::GarbageCollector;
-pub use object::{Object, Runtime, Value, ClassInstance};
-
+pub use object::{ClassInstance, Object, Runtime, Value};

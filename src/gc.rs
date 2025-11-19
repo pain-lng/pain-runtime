@@ -53,7 +53,7 @@ impl Drop for GcObject {
 /// Garbage Collector - mark-and-sweep implementation
 pub struct GarbageCollector {
     objects: HashMap<*mut u8, (GcHeader, usize)>, // data_ptr -> (header, size)
-    roots: HashSet<*mut u8>, // Root pointers (variables, stack, etc.)
+    roots: HashSet<*mut u8>,                      // Root pointers (variables, stack, etc.)
     total_allocated: usize,
     threshold: usize, // GC threshold in bytes
 }
@@ -88,8 +88,7 @@ impl GarbageCollector {
         let aligned_size = (total_size + align - 1) & !(align - 1);
 
         unsafe {
-            let layout = std::alloc::Layout::from_size_align(aligned_size, align)
-                .ok()?;
+            let layout = std::alloc::Layout::from_size_align(aligned_size, align).ok()?;
             let ptr = std::alloc::alloc(layout);
             if ptr.is_null() {
                 // Try GC and retry
@@ -111,7 +110,16 @@ impl GarbageCollector {
             let data_ptr = ptr.add(header_size);
 
             // Track object
-            self.objects.insert(data_ptr, (GcHeader { marked: false, size }, aligned_size));
+            self.objects.insert(
+                data_ptr,
+                (
+                    GcHeader {
+                        marked: false,
+                        size,
+                    },
+                    aligned_size,
+                ),
+            );
             self.total_allocated += aligned_size;
 
             Some(GcObject {
@@ -178,10 +186,10 @@ impl GarbageCollector {
                     let align = 8;
                     let aligned_size = header_size + total_size;
                     let aligned_size = (aligned_size + align - 1) & !(align - 1);
-                    
+
                     // Get pointer to start of allocation (header)
                     let header_ptr = data_ptr.sub(header_size);
-                    
+
                     let layout = std::alloc::Layout::from_size_align(aligned_size, 8)
                         .expect("Invalid layout");
                     std::alloc::dealloc(header_ptr, layout);
@@ -199,7 +207,9 @@ impl GarbageCollector {
 
     /// Get memory statistics
     pub fn stats(&self) -> (usize, usize, usize) {
-        let live_objects = self.objects.values()
+        let live_objects = self
+            .objects
+            .values()
             .filter(|(header, _)| header.marked)
             .count();
         (self.total_allocated, self.objects.len(), live_objects)
@@ -226,18 +236,18 @@ mod tests {
     #[test]
     fn test_gc_basic() {
         let mut gc = GarbageCollector::with_threshold(1024);
-        
+
         // Allocate some objects
         let obj1 = gc.allocate(64).unwrap();
         let obj2 = gc.allocate(128).unwrap();
-        
+
         // Register as roots
         gc.add_root(obj1.data_ptr());
         gc.add_root(obj2.data_ptr());
-        
+
         // Mark and sweep should keep both
         gc.collect();
-        
+
         let (allocated, total, live) = gc.stats();
         assert!(allocated > 0);
         assert_eq!(total, 2);
@@ -247,20 +257,19 @@ mod tests {
     #[test]
     fn test_gc_collect_unreachable() {
         let mut gc = GarbageCollector::with_threshold(1024);
-        
+
         // Allocate objects
         let obj1 = gc.allocate(64).unwrap();
-        let obj2 = gc.allocate(128).unwrap();
-        
+        let _obj2 = gc.allocate(128).unwrap();
+
         // Only register obj1 as root
         gc.add_root(obj1.data_ptr());
-        
+
         // Collect should free obj2
         gc.collect();
-        
+
         let (_, total, live) = gc.stats();
         assert_eq!(total, 1);
         assert_eq!(live, 1);
     }
 }
-
