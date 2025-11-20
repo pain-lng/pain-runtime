@@ -1,4 +1,4 @@
-// Basic allocator module - bump allocator and arena allocator
+// Basic allocator module - bump allocator and arena allocator with optimizations
 
 use std::alloc::{alloc, dealloc, Layout};
 use std::ptr::NonNull;
@@ -40,8 +40,19 @@ impl BumpAllocator {
     }
 
     /// Allocate memory of the specified size and alignment
+    /// Optimized for common alignment values (8, 16, 32, 64)
     pub fn allocate(&mut self, size: usize, align: usize) -> Option<NonNull<u8>> {
-        let align_offset = self.current.align_offset(align);
+        // Optimize alignment calculation for power-of-2 alignments
+        let align_offset = if align.is_power_of_two() {
+            // Fast path: use bitwise operations for power-of-2 alignment
+            let mask = align - 1;
+            let current_addr = self.current as usize;
+            let aligned_addr = (current_addr + mask) & !mask;
+            aligned_addr - current_addr
+        } else {
+            self.current.align_offset(align)
+        };
+        
         let aligned_ptr = unsafe { self.current.add(align_offset) };
         let new_current = unsafe { aligned_ptr.add(size) };
 
@@ -78,26 +89,138 @@ impl Drop for BumpAllocator {
     }
 }
 
-/// Arena allocator - manages multiple bump allocators
+/// Memory pool for fixed-size allocations
+pub struct MemoryPool {
+    block_size: usize,
+    blocks: Vec<*mut u8>,
+    free_list: Vec<*mut u8>,
+    pool_size: usize,
+}
+
+impl MemoryPool {
+    /// Create a new memory pool with specified block size and capacity
+    pub fn new(block_size: usize, capacity: usize) -> Result<Self, &'static str> {
+        if block_size == 0 || capacity == 0 {
+            return Err("Block size and capacity must be greater than 0");
+        }
+
+        // Align block size to next power of 2 for better performance
+        let aligned_block_size = block_size.next_power_of_two();
+        let pool_size = aligned_block_size * capacity;
+        
+        let layout = Layout::from_size_align(pool_size, aligned_block_size)
+            .map_err(|_| "Invalid layout")?;
+
+        unsafe {
+            let ptr = alloc(layout);
+            if ptr.is_null() {
+                return Err("Failed to allocate memory pool");
+            }
+
+            let mut blocks = Vec::with_capacity(capacity);
+            let mut free_list = Vec::with_capacity(capacity);
+
+            // Initialize free list
+            for i in 0..capacity {
+                let block_ptr = ptr.add(i * aligned_block_size);
+                blocks.push(block_ptr);
+                free_list.push(block_ptr);
+            }
+
+            Ok(Self {
+                block_size: aligned_block_size,
+                blocks,
+                free_list,
+                pool_size,
+            })
+        }
+    }
+
+    /// Allocate a block from the pool
+    pub fn allocate(&mut self) -> Option<NonNull<u8>> {
+        self.free_list.pop().map(NonNull::new).flatten()
+    }
+
+    /// Deallocate a block back to the pool
+    pub fn deallocate(&mut self, ptr: NonNull<u8>) {
+        // Verify pointer is in pool range
+        let ptr_addr = ptr.as_ptr() as usize;
+        let pool_start = self.blocks[0] as usize;
+        let pool_end = pool_start + self.pool_size;
+
+        if ptr_addr >= pool_start && ptr_addr < pool_end {
+            // Check alignment
+            if (ptr_addr - pool_start) % self.block_size == 0 {
+                self.free_list.push(ptr.as_ptr());
+            }
+        }
+    }
+
+    /// Get number of free blocks
+    pub fn free_count(&self) -> usize {
+        self.free_list.len()
+    }
+
+    /// Get number of allocated blocks
+    pub fn allocated_count(&self) -> usize {
+        self.blocks.len() - self.free_list.len()
+    }
+}
+
+impl Drop for MemoryPool {
+    fn drop(&mut self) {
+        if !self.blocks.is_empty() {
+            unsafe {
+                let layout = Layout::from_size_align(
+                    self.pool_size,
+                    self.block_size,
+                ).unwrap();
+                dealloc(self.blocks[0], layout);
+            }
+        }
+    }
+}
+
+/// Arena allocator - manages multiple bump allocators with memory pools
 pub struct Arena {
     allocators: Vec<BumpAllocator>,
     current_allocator: usize,
     allocator_size: usize,
+    pools: Vec<MemoryPool>, // Memory pools for common sizes
 }
 
 impl Arena {
     /// Create a new arena with the specified allocator size
     pub fn new(allocator_size: usize) -> Result<Self, &'static str> {
         let first_allocator = BumpAllocator::new(allocator_size)?;
+        
+        // Create memory pools for common sizes (8, 16, 32, 64, 128 bytes)
+        let mut pools = Vec::new();
+        for &size in &[8, 16, 32, 64, 128] {
+            if let Ok(pool) = MemoryPool::new(size, 256) {
+                pools.push(pool);
+            }
+        }
+        
         Ok(Self {
             allocators: vec![first_allocator],
             current_allocator: 0,
             allocator_size,
+            pools,
         })
     }
 
-    /// Allocate memory, creating a new allocator if needed
+    /// Allocate memory, using pools for common sizes, creating a new allocator if needed
     pub fn allocate(&mut self, size: usize, align: usize) -> Option<NonNull<u8>> {
+        // Try memory pools for common sizes
+        for pool in &mut self.pools {
+            if pool.block_size >= size && pool.block_size % align == 0 {
+                if let Some(ptr) = pool.allocate() {
+                    return Some(ptr);
+                }
+            }
+        }
+
         // Try current allocator
         if let Some(ptr) = self.allocators[self.current_allocator].allocate(size, align) {
             return Some(ptr);
@@ -116,6 +239,18 @@ impl Arena {
             }
             Err(_) => None,
         }
+    }
+
+    /// Deallocate memory (returns to pool if applicable)
+    pub fn deallocate(&mut self, ptr: NonNull<u8>, size: usize) {
+        // Try to return to appropriate pool
+        for pool in &mut self.pools {
+            if pool.block_size == size {
+                pool.deallocate(ptr);
+                return;
+            }
+        }
+        // For non-pool allocations, we don't deallocate (bump allocator behavior)
     }
 
     /// Reset all allocators
