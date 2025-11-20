@@ -52,7 +52,7 @@ impl BumpAllocator {
         } else {
             self.current.align_offset(align)
         };
-        
+
         let aligned_ptr = unsafe { self.current.add(align_offset) };
         let new_current = unsafe { aligned_ptr.add(size) };
 
@@ -107,9 +107,9 @@ impl MemoryPool {
         // Align block size to next power of 2 for better performance
         let aligned_block_size = block_size.next_power_of_two();
         let pool_size = aligned_block_size * capacity;
-        
-        let layout = Layout::from_size_align(pool_size, aligned_block_size)
-            .map_err(|_| "Invalid layout")?;
+
+        let layout =
+            Layout::from_size_align(pool_size, aligned_block_size).map_err(|_| "Invalid layout")?;
 
         unsafe {
             let ptr = alloc(layout);
@@ -138,7 +138,7 @@ impl MemoryPool {
 
     /// Allocate a block from the pool
     pub fn allocate(&mut self) -> Option<NonNull<u8>> {
-        self.free_list.pop().map(NonNull::new).flatten()
+        self.free_list.pop().and_then(NonNull::new)
     }
 
     /// Deallocate a block back to the pool
@@ -150,7 +150,7 @@ impl MemoryPool {
 
         if ptr_addr >= pool_start && ptr_addr < pool_end {
             // Check alignment
-            if (ptr_addr - pool_start) % self.block_size == 0 {
+            if (ptr_addr - pool_start).is_multiple_of(self.block_size) {
                 self.free_list.push(ptr.as_ptr());
             }
         }
@@ -171,10 +171,7 @@ impl Drop for MemoryPool {
     fn drop(&mut self) {
         if !self.blocks.is_empty() {
             unsafe {
-                let layout = Layout::from_size_align(
-                    self.pool_size,
-                    self.block_size,
-                ).unwrap();
+                let layout = Layout::from_size_align(self.pool_size, self.block_size).unwrap();
                 dealloc(self.blocks[0], layout);
             }
         }
@@ -193,7 +190,7 @@ impl Arena {
     /// Create a new arena with the specified allocator size
     pub fn new(allocator_size: usize) -> Result<Self, &'static str> {
         let first_allocator = BumpAllocator::new(allocator_size)?;
-        
+
         // Create memory pools for common sizes (8, 16, 32, 64, 128 bytes)
         let mut pools = Vec::new();
         for &size in &[8, 16, 32, 64, 128] {
@@ -201,7 +198,7 @@ impl Arena {
                 pools.push(pool);
             }
         }
-        
+
         Ok(Self {
             allocators: vec![first_allocator],
             current_allocator: 0,
