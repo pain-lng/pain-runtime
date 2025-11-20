@@ -165,6 +165,14 @@ impl MemoryPool {
     pub fn allocated_count(&self) -> usize {
         self.blocks.len() - self.free_list.len()
     }
+
+    /// Reset the pool by returning all blocks to the free list
+    pub fn reset(&mut self) {
+        self.free_list.clear();
+        for &block in &self.blocks {
+            self.free_list.push(block);
+        }
+    }
 }
 
 impl Drop for MemoryPool {
@@ -250,17 +258,26 @@ impl Arena {
         // For non-pool allocations, we don't deallocate (bump allocator behavior)
     }
 
-    /// Reset all allocators
+    /// Reset all allocators and pools
     pub fn reset(&mut self) {
         for allocator in &mut self.allocators {
             allocator.reset();
         }
+        for pool in &mut self.pools {
+            pool.reset();
+        }
         self.current_allocator = 0;
     }
 
-    /// Get total memory used across all allocators
+    /// Get total memory used across all allocators and pools
     pub fn total_used(&self) -> usize {
-        self.allocators.iter().map(|a| a.used()).sum()
+        let allocator_used: usize = self.allocators.iter().map(|a| a.used()).sum();
+        let pool_used: usize = self
+            .pools
+            .iter()
+            .map(|p| p.allocated_count() * p.block_size)
+            .sum();
+        allocator_used + pool_used
     }
 
     /// Get total capacity across all allocators
