@@ -142,7 +142,7 @@ impl GarbageCollector {
     /// Mark all reachable objects from roots
     fn mark_phase(&mut self) {
         // Reset all marks
-        for (_, (header, _)) in self.objects.iter_mut() {
+        for (header, _) in self.objects.values_mut() {
             header.marked = false;
         }
 
